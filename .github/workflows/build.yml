@@ -1,0 +1,48 @@
+name: Build Android APK
+on:
+  repository_dispatch:
+    types: [build_app]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Template
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Cordova
+        run: npm install -g cordova
+
+      - name: Create Cordova Project
+        run: |
+          cordova create myapp com.example.app "My App"
+          cd myapp
+          cordova platform add android
+
+      - name: Inject User Files
+        run: |
+          # আপনার পাঠানো HTML কোড এবং ডিজাইন এখানে ইনজেক্ট হবে
+          echo "${{ github.event.client_payload.html_code }}" > myapp/www/index.html
+          # আইকন প্রসেসিং (এখানে আইকন লজিক যুক্ত করা যাবে)
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Build APK
+        run: |
+          cd myapp
+          cordova build android --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-debug
+          path: myapp/platforms/android/app/build/outputs/apk/debug/app-debug.apk
