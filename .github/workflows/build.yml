@@ -28,7 +28,6 @@ jobs:
         env:
           RAW_APP_NAME: ${{ github.event.client_payload.app_name }}
         run: |
-          # অ্যাপের নাম যদি খালি আসে তবে 'HopWebApp' সেট করা
           FINAL_NAME="${RAW_APP_NAME:-HopWebApp}"
           cordova create myapp com.hopweb.app "$FINAL_NAME"
 
@@ -36,7 +35,7 @@ jobs:
         env:
           HTML_DATA: ${{ github.event.client_payload.html_code }}
         run: |
-          # এনভায়রনমেন্ট ভেরিয়েবল ব্যবহার করার ফলে কোনো চিহ্নে এরর আসবে না
+          # index.html ফাইলে কোড বসানো
           printf "%s" "$HTML_DATA" > myapp/www/index.html
 
       - name: Add Android Platform
@@ -48,26 +47,44 @@ jobs:
       - name: Build Android APK
         working-directory: ./myapp
         run: |
-          # গ্র্যাডল ফাইল ঠিকমতো তৈরি করা
+          # প্রিপেয়ার এবং বিল্ড
+          cordova prepare android
           cordova build android --debug --device -- --packageType=apk
 
-      - name: Upload APK and Notify Firebase
+      - name: Find and Upload APK
         run: |
-          # এপিকে ফাইলটি খুঁজে বের করা
-          APK_PATH=$(find myapp/platforms/android -name "*.apk" | head -n 1)
-          
-          if [ -z "$APK_PATH" ]; then
+          # পুরো myapp ফোল্ডারে .apk ফাইল খুঁজে বের করা
+          echo "ফাইল খোঁজা হচ্ছে..."
+          APK_FILE=$(find myapp -name "*.apk" | head -n 1)
+
+          if [ -z "$APK_FILE" ]; then
             echo "এরর: এপিকে ফাইল তৈরি হয়নি!"
             exit 1
           fi
 
-          # এপিকে আপলোড করা (bashupload ব্যবহার)
-          UPLOAD_RES=$(curl -s -T $APK_PATH https://bashupload.com/app-debug.apk)
-          DOWNLOAD_URL=$(echo "$UPLOAD_RES" | grep -o 'https://bashupload.com/[^ ]*')
+          echo "ফাইল পাওয়া গেছে: $APK_FILE"
 
-          # ফায়ারবেজে ডাটা পাঠানো
+          # এপিকে আপলোড করা (bashupload ব্যবহার)
+          # লিংকটি পরিষ্কারভাবে বের করার জন্য curl কমান্ড
+          UPLOAD_URL=$(curl -s -T "$APK_FILE" https://bashupload.com/app-debug.apk | grep -o 'https://bashupload.com/[^ ]*')
+          
+          if [ -z "$UPLOAD_URL" ]; then
+             echo "আপলোড ফেল করেছে, বিকল্প আপলোডার চেষ্টা করা হচ্ছে..."
+             UPLOAD_URL=$(curl -s -F "file=@$APK_FILE" https://file.io | grep -o 'https://file.io/[^"]*')
+          fi
+
+          echo "ডাউনলোড লিংক: $UPLOAD_URL"
+
+          # ফায়ারবেজে তথ্য পাঠানো
           BUILD_ID="${{ github.event.client_payload.build_id }}"
           DATABASE_URL="https://e-commerce-90208-default-rtdb.firebaseio.com"
           
-          curl -X PATCH -d "{\"download_url\": \"$DOWNLOAD_URL\", \"status\": \"finished\"}" \
-          "$DATABASE_URL/builds/$BUILD_ID.json" 
+          curl -X PATCH -d "{\"download_url\": \"$UPLOAD_URL\", \"status\": \"finished\"}" \
+          "$DATABASE_URL/builds/$BUILD_ID.json"
+
+      # ব্যাকআপ হিসেবে এপিকে ফাইলটি গিটহাবেও আপলোড করে রাখা (যদি লিংক কাজ না করে)
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hopweb-apk
+          path: myapp/**/*.apk  
