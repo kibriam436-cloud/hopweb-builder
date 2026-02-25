@@ -24,14 +24,20 @@ jobs:
       - name: Install Cordova
         run: npm install -g cordova
 
-      - name: Create and Setup Project
+      - name: Create Cordova Project
+        env:
+          RAW_APP_NAME: ${{ github.event.client_payload.app_name }}
         run: |
-          APP_NAME="${{ github.event.client_payload.app_name }}"
-          if [ -z "$APP_NAME" ]; then APP_NAME="HopWebApp"; fi
-          cordova create myapp com.hopweb.app "$APP_NAME"
-          
-          # কোড ইনজেক্ট করা
-          printf "%s" "${{ github.event.client_payload.html_code }}" > myapp/www/index.html
+          # অ্যাপের নাম যদি খালি আসে তবে 'HopWebApp' সেট করা
+          FINAL_NAME="${RAW_APP_NAME:-HopWebApp}"
+          cordova create myapp com.hopweb.app "$FINAL_NAME"
+
+      - name: Inject User Code
+        env:
+          HTML_DATA: ${{ github.event.client_payload.html_code }}
+        run: |
+          # এনভায়রনমেন্ট ভেরিয়েবল ব্যবহার করার ফলে কোনো চিহ্নে এরর আসবে না
+          printf "%s" "$HTML_DATA" > myapp/www/index.html
 
       - name: Add Android Platform
         working-directory: ./myapp
@@ -42,33 +48,26 @@ jobs:
       - name: Build Android APK
         working-directory: ./myapp
         run: |
+          # গ্র্যাডল ফাইল ঠিকমতো তৈরি করা
           cordova build android --debug --device -- --packageType=apk
 
       - name: Upload APK and Notify Firebase
         run: |
-          # পুরো প্রজেক্টে এপিকে ফাইলটি খুঁজে বের করা
+          # এপিকে ফাইলটি খুঁজে বের করা
           APK_PATH=$(find myapp/platforms/android -name "*.apk" | head -n 1)
           
           if [ -z "$APK_PATH" ]; then
-            echo "এরর: এপিকে ফাইল খুঁজে পাওয়া যায়নি!"
+            echo "এরর: এপিকে ফাইল তৈরি হয়নি!"
             exit 1
           fi
 
-          echo "ফাইল পাওয়া গেছে: $APK_PATH"
-
           # এপিকে আপলোড করা (bashupload ব্যবহার)
-          # লিংকটি সরাসরি ফিল্টার করে নেওয়া
           UPLOAD_RES=$(curl -s -T $APK_PATH https://bashupload.com/app-debug.apk)
           DOWNLOAD_URL=$(echo "$UPLOAD_RES" | grep -o 'https://bashupload.com/[^ ]*')
 
-          if [ -z "$DOWNLOAD_URL" ]; then
-             # বিকল্প আপলোডার যদি bashupload ফেল করে
-             DOWNLOAD_URL=$(curl -s -F "file=@$APK_PATH" https://file.io | grep -o 'https://file.io/[^"]*')
-          fi
-
-          # ফায়ারবেজে আপডেট পাঠানো
+          # ফায়ারবেজে ডাটা পাঠানো
           BUILD_ID="${{ github.event.client_payload.build_id }}"
           DATABASE_URL="https://e-commerce-90208-default-rtdb.firebaseio.com"
           
           curl -X PATCH -d "{\"download_url\": \"$DOWNLOAD_URL\", \"status\": \"finished\"}" \
-          "$DATABASE_URL/builds/$BUILD_ID.json"
+          "$DATABASE_URL/builds/$BUILD_ID.json" 
