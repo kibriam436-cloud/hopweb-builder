@@ -15,7 +15,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -34,15 +33,13 @@ jobs:
           
       - name: Inject User Code
         run: |
-          # ইউজারের কোড index.html ফাইলে বসানো
+          # index.html ফাইলে কোড বসানো
           echo "${{ github.event.client_payload.html_code }}" > myapp/www/index.html
 
       - name: Build Android APK
         run: |
           cd myapp
-          # গ্র্যাডল ফাইলকে পারমিশন দেওয়া
           chmod +x platforms/android/gradlew
-          # এপিকে বিল্ড করা
           cordova build android --debug --device -- --packageType=apk
 
       - name: Upload APK and Notify Firebase
@@ -50,12 +47,15 @@ jobs:
           # বিল্ড করা APK ফাইলটি খুঁজে বের করা
           APK_PATH=$(find myapp/platforms/android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
           
-          # এপিকে আপলোড করা এবং লিংক নেওয়া
-          UPLOAD_LINK=$(curl -s -T $APK_PATH https://bashupload.com/app-debug.apk | grep -o 'https://bashupload.com/[^ ]*')
+          # এপিকে আপলোড করা (bashupload ব্যবহার)
+          UPLOAD_RES=$(curl -s -T $APK_PATH https://bashupload.com/app-debug.apk)
+          
+          # শুধুমাত্র ডাউনলোড লিংকটি ফিল্টার করা
+          DOWNLOAD_URL=$(echo "$UPLOAD_RES" | grep -o 'https://bashupload.com/[^ ]*')
           
           # ফায়ারবেজ ডাটাবেজে আপডেট পাঠানো
           BUILD_ID="${{ github.event.client_payload.build_id }}"
           DATABASE_URL="https://e-commerce-90208-default-rtdb.firebaseio.com"
           
-          curl -X PATCH -d "{\"download_url\": \"$UPLOAD_LINK\", \"status\": \"finished\"}" \
+          curl -X PATCH -d "{\"download_url\": \"$DOWNLOAD_URL\", \"status\": \"finished\"}" \
           "$DATABASE_URL/builds/$BUILD_ID.json"
