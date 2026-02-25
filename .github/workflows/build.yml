@@ -8,28 +8,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Java 11
-        uses: actions/setup-java@v3
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
+          cache: 'gradle'
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Install Cordova
         run: npm install -g cordova
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Create Cordova Project
         run: |
-          # টেলিমետ্রি অফ করা (এরর এড়াতে)
           cordova telemetry off
           cordova create myapp com.hopweb.app "${{ github.event.client_payload.app_name }}"
           cd myapp
@@ -37,27 +34,28 @@ jobs:
           
       - name: Inject User Code
         run: |
-          # কোড ইনজেক্ট করা
+          # ইউজারের কোড index.html ফাইলে বসানো
           echo "${{ github.event.client_payload.html_code }}" > myapp/www/index.html
 
       - name: Build Android APK
         run: |
           cd myapp
-          # গ্র্যাডল পারমিশন এবং বিল্ড
+          # গ্র্যাডল ফাইলকে পারমিশন দেওয়া
           chmod +x platforms/android/gradlew
-          cordova build android --debug --device
+          # এপিকে বিল্ড করা
+          cordova build android --debug --device -- --packageType=apk
 
       - name: Upload APK and Notify Firebase
         run: |
-          APK_PATH="myapp/platforms/android/app/build/outputs/apk/debug/app-debug.apk"
+          # বিল্ড করা APK ফাইলটি খুঁজে বের করা
+          APK_PATH=$(find myapp/platforms/android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
           
-          # এপিকে আপলোড করা (bashupload ব্যবহার)
-          # এটি শুধু ডাউনলোড লিংকটি ফিল্টার করে বের করবে
-          DOWNLOAD_URL=$(curl -T $APK_PATH https://bashupload.com/app-debug.apk | grep -o 'https://bashupload.com/[^ ]*')
+          # এপিকে আপলোড করা এবং লিংক নেওয়া
+          UPLOAD_LINK=$(curl -s -T $APK_PATH https://bashupload.com/app-debug.apk | grep -o 'https://bashupload.com/[^ ]*')
           
-          # ফায়ারবেজে আপডেট পাঠানো
+          # ফায়ারবেজ ডাটাবেজে আপডেট পাঠানো
           BUILD_ID="${{ github.event.client_payload.build_id }}"
           DATABASE_URL="https://e-commerce-90208-default-rtdb.firebaseio.com"
           
-          curl -X PATCH -d "{\"download_url\": \"$DOWNLOAD_URL\", \"status\": \"finished\"}" \
+          curl -X PATCH -d "{\"download_url\": \"$UPLOAD_LINK\", \"status\": \"finished\"}" \
           "$DATABASE_URL/builds/$BUILD_ID.json"
